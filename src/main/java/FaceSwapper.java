@@ -1,3 +1,6 @@
+import org.bytedeco.javacpp.Loader;
+import org.bytedeco.javacpp.opencv_core;
+import org.bytedeco.javacpp.opencv_java;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.factory.Nd4j;
 import org.opencv.core.*;
@@ -9,6 +12,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import org.bytedeco.javacpp.opencv_core.MatExpr;
 import static org.opencv.imgproc.Imgproc.CV_WARP_INVERSE_MAP;
 
 /**
@@ -48,7 +52,7 @@ public class FaceSwapper {
 
 
     static {
-        System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
+        Loader.load(opencv_java.class);
 
         OVERLAY_POINTS = new ArrayList<>();
         ArrayList<Integer> top = new ArrayList<Integer>();
@@ -73,8 +77,9 @@ public class FaceSwapper {
         ALIGN_POINTS.addAll(MOUTH_POINTS);
     }
 
-    public FaceSwapper(Mat im1, Mat im2, INDArray landmarks1, INDArray landmarks2) {
+    private final Mat swappedImage;
 
+    public FaceSwapper(Mat im1, Mat im2, INDArray landmarks1, INDArray landmarks2) {
         int[] alignPoints = ALIGN_POINTS.stream()
                 .mapToInt(Integer::intValue).toArray();
 
@@ -84,16 +89,51 @@ public class FaceSwapper {
         );
 
 
+        Mat mask1 = getFaceMask(im1, landmarks1);
+        Mat mask2 = getFaceMask(im2, landmarks2);
 
-        Mat faceMask = getFaceMask(im2, landmarks2);
+        Mat warpedMask2 = warpIm(mask2, M, im1.size());
 
-        Mat warpedIm = warpIm(faceMask, M, im1.size());
+        Mat combinedMask = getCombinedMask(mask1, warpedMask2);
 
-        Imgcodecs.imwrite("outfile1.jpg", warpedIm);
+        Mat warpedIm2 = warpIm(im2, M, im1.size());
+
+        //ones
+        Mat ones = new Mat(combinedMask.size(), CvType.CV_64FC3);
+        ones.setTo(new Scalar(1, 1, 1));
+        //one minus mask
+        Mat omm = new Mat(combinedMask.size(), CvType.CV_64FC3);
+        //warped image 2 times combined mask
+        Mat wim2Tcm = new Mat(combinedMask.size(), CvType.CV_64FC3);
+        //image 1 times omm
+        Mat im1Tomm = new Mat(combinedMask.size(), CvType.CV_64FC3);
+        //output image
+        Mat output64 = new Mat(combinedMask.size(), CvType.CV_64FC3);
+
+        Core.subtract(ones, combinedMask, omm);
+        Core.multiply(im1, omm, im1Tomm, 1, CvType.CV_64FC3);
+
+        Core.multiply(warpedIm2, combinedMask, wim2Tcm, 1, CvType.CV_64FC3);
+        Core.add(im1Tomm, wim2Tcm, output64);
+
+        Mat outputImage = new Mat(output64.size(), CvType.CV_8UC3);
+        output64.convertTo(outputImage, CvType.CV_8UC3);
+
+//        Imgcodecs.imwrite("outfile1.jpg", outputImage);
+
+//        output_im = im1 * (1.0 - combined_mask) + warped_im2 * combined_mask
+        this.swappedImage = outputImage;
+
+    }
+
+    private Mat getCombinedMask(Mat mask1, Mat warpedMask2) {
+        Mat dest = new Mat(mask1.size(), mask1.type());
+        Core.max(mask1, warpedMask2, dest);
+        return dest;
     }
 
     private Mat warpIm(Mat faceMask, INDArray m, Size size) {
-        Mat dest = new Mat(size, faceMask.type());
+        Mat dest = new Mat(size, CvType.CV_64FC3);
         Mat transformation = Mat.eye(2, 3, CvType.CV_64F);
 
         for(int i = 0; i < m.rows() -1; i++){
@@ -119,11 +159,12 @@ public class FaceSwapper {
                 5,
                 new Scalar(0, 0, 0)
         );
+
         return dest;
     }
 
     private Mat getFaceMask(Mat im, INDArray landmarks) {
-        Mat newImage = new Mat(im.rows(), im.cols(), im.type());
+        Mat newImage = new Mat(im.size(), CvType.CV_64FC3);
 
         for(ArrayList<Integer> group : OVERLAY_POINTS) {
             int[] rowsToGet = group.stream()

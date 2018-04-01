@@ -1,3 +1,4 @@
+import org.bytedeco.javacpp.*;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.factory.Nd4j;
 import org.opencv.core.Core;
@@ -5,6 +6,8 @@ import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.Scalar;
 import org.opencv.imgcodecs.Imgcodecs;
+
+import org.bytedeco.javacpp.opencv_core.*;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -217,7 +220,8 @@ public class Main {
     }
 
     static {
-        System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
+//        System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
+        Loader.load(opencv_java.class);
     }
 
     public static void main(String[] args) {
