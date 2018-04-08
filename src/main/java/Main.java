@@ -20,7 +20,7 @@ import java.io.IOException;
  */
 public class Main {
 
-    private static INDArray landmarks1 = Nd4j.create(new float[][]{
+    private static float[][] landmarks1 = new float[][]{
             {29f, 60f},
             {30f, 67f},
             {31f, 75f},
@@ -89,9 +89,9 @@ public class Main {
             {62f, 85f},
             {58f, 85f},
             {54f, 85f}
-    });
+    };
 
-    private static INDArray landmarks2 = Nd4j.create(new float[][]{
+    private static float[][] landmarks2 = new float[][]{
         {144f, 159f},
         {147f, 180f},
         {149f, 201f},
@@ -160,7 +160,7 @@ public class Main {
         {242f, 219f},
         {235f, 221f},
         {227f, 221f}
-    });
+    };
 
 
 

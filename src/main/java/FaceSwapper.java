@@ -1,23 +1,19 @@
 import org.bytedeco.javacpp.Loader;
-import org.bytedeco.javacpp.opencv_core;
 import org.bytedeco.javacpp.opencv_java;
-import org.nd4j.linalg.api.ndarray.INDArray;
-import org.nd4j.linalg.factory.Nd4j;
 import org.opencv.core.*;
 import org.opencv.imgcodecs.Imgcodecs;
 import org.opencv.imgproc.Imgproc;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-import org.bytedeco.javacpp.opencv_core.MatExpr;
+import static org.bytedeco.javacpp.opencv_core.CV_REDUCE_AVG;
 import static org.opencv.imgproc.Imgproc.CV_WARP_INVERSE_MAP;
 
-/**
- * Created by richwandell on 4/1/18.
- */
+
 public class FaceSwapper {
 
     private final int FEATHER_AMOUNT = 11;
@@ -46,51 +42,77 @@ public class FaceSwapper {
     private static List<Integer> JAW_POINTS = IntStream.rangeClosed(0, 16)
             .boxed().collect(Collectors.toList());
 
-    private static List<ArrayList<Integer>> OVERLAY_POINTS;
+    private static int[][] OVERLAY_POINTS;
 
-    private static List<Integer> ALIGN_POINTS;
+    private static int[] ALIGN_POINTS;
 
 
     static {
         Loader.load(opencv_java.class);
 
-        OVERLAY_POINTS = new ArrayList<>();
         ArrayList<Integer> top = new ArrayList<Integer>();
 
         top.addAll(LEFT_EYE_POINTS);
         top.addAll(RIGHT_EYE_POINTS);
         top.addAll(LEFT_BROW_POINTS);
         top.addAll(RIGHT_BROW_POINTS);
-        OVERLAY_POINTS.add(top);
+        int[] topInts = top.stream().mapToInt(Integer::intValue).toArray();
+
 
         ArrayList<Integer> bottom = new ArrayList<Integer>();
         bottom.addAll(NOSE_POINTS);
         bottom.addAll(MOUTH_POINTS);
-        OVERLAY_POINTS.add(bottom);
+        int[] bottomInts = bottom.stream().mapToInt(Integer::intValue).toArray();
 
-        ALIGN_POINTS = new ArrayList<>();
-        ALIGN_POINTS.addAll(LEFT_BROW_POINTS);
-        ALIGN_POINTS.addAll(RIGHT_EYE_POINTS);
-        ALIGN_POINTS.addAll(LEFT_EYE_POINTS);
-        ALIGN_POINTS.addAll(RIGHT_BROW_POINTS);
-        ALIGN_POINTS.addAll(NOSE_POINTS);
-        ALIGN_POINTS.addAll(MOUTH_POINTS);
+        OVERLAY_POINTS = new int[][]{topInts, bottomInts};
+
+        ArrayList<Integer> alignPoints = new ArrayList<>();
+        alignPoints.addAll(LEFT_BROW_POINTS);
+        alignPoints.addAll(RIGHT_EYE_POINTS);
+        alignPoints.addAll(LEFT_EYE_POINTS);
+        alignPoints.addAll(RIGHT_BROW_POINTS);
+        alignPoints.addAll(NOSE_POINTS);
+        alignPoints.addAll(MOUTH_POINTS);
+
+        ALIGN_POINTS = alignPoints.stream().mapToInt(Integer::intValue).toArray();
     }
 
-    private final Mat swappedImage;
+    private Mat swappedImage = null;
 
-    public FaceSwapper(Mat im1, Mat im2, INDArray landmarks1, INDArray landmarks2) {
-        int[] alignPoints = ALIGN_POINTS.stream()
-                .mapToInt(Integer::intValue).toArray();
+    private Mat floatToMat(float[][] f) {
+        Mat m = new Mat(f.length, f[0].length, CvType.CV_64FC1);
+        for(int i = 0; i < f.length; i++) {
+            for(int j = 0; j < f[i].length; j++) {
+                m.put(i, j, f[i][j]);
+            }
+        }
+        return m;
+    }
 
-        INDArray M = transformationFromPoints(
-                landmarks1.getRows(alignPoints),
-                landmarks2.getRows(alignPoints)
-        );
+    private Mat subSet(Mat m, int[] i) {
+        Mat m1= new Mat();
+        for(int j : i) {
+            m1.push_back(m.row(j));
+        }
+        return m1;
+    }
+
+    public FaceSwapper(Mat im1, Mat im2, float[][] landmarks1, float[][] landmarks2) {
+
+        Mat landmarks1Mat = floatToMat(landmarks1);
+        Mat landmarks2Mat = floatToMat(landmarks2);
+
+        Mat points1 = subSet(landmarks1Mat, ALIGN_POINTS);
+        Mat points2 = subSet(landmarks2Mat, ALIGN_POINTS);
 
 
-        Mat mask1 = getFaceMask(im1, landmarks1);
-        Mat mask2 = getFaceMask(im2, landmarks2);
+
+        long start = System.currentTimeMillis();
+
+        Mat M = transformationFromPoints(points1, points2);
+
+        Mat mask1 = getFaceMask(im1, landmarks1Mat);
+        Mat mask2 = getFaceMask(im2, landmarks2Mat);
 
         Mat warpedMask2 = warpIm(mask2, M, im1.size());
 
@@ -111,6 +133,7 @@ public class FaceSwapper {
         Mat output64 = new Mat(combinedMask.size(), CvType.CV_64FC3);
 
         Core.subtract(ones, combinedMask, omm);
+
         Core.multiply(im1, omm, im1Tomm, 1, CvType.CV_64FC3);
 
         Core.multiply(warpedIm2, combinedMask, wim2Tcm, 1, CvType.CV_64FC3);
@@ -118,10 +141,11 @@ public class FaceSwapper {
 
         Mat outputImage = new Mat(output64.size(), CvType.CV_8UC3);
         output64.convertTo(outputImage, CvType.CV_8UC3);
+        long end = System.currentTimeMillis() - start;
 
-//        Imgcodecs.imwrite("outfile1.jpg", outputImage);
+        System.out.println(Long.toString(end));
+        Imgcodecs.imwrite("outfile3.jpg", outputImage);
 
-//        output_im = im1 * (1.0 - combined_mask) + warped_im2 * combined_mask
         this.swappedImage = outputImage;
 
     }
@@ -132,28 +156,12 @@ public class FaceSwapper {
         return dest;
     }
 
-    private Mat warpIm(Mat faceMask, INDArray m, Size size) {
+    private Mat warpIm(Mat faceMask, Mat m, Size size) {
         Mat dest = new Mat(size, CvType.CV_64FC3);
-        Mat transformation = Mat.eye(2, 3, CvType.CV_64F);
-
-        for(int i = 0; i < m.rows() -1; i++){
-            INDArray row = m.getRow(i);
-
-            transformation.put(
-                    i,
-                    0,
-                    new double[]{
-                            row.getDouble(0),
-                            row.getDouble(1),
-                            row.getDouble(2)
-                    }
-            );
-        }
-
         Imgproc.warpAffine(
                 faceMask,
                 dest,
-                transformation,
+                m,
                 size,
                 CV_WARP_INVERSE_MAP,
                 5,
@@ -163,40 +171,35 @@ public class FaceSwapper {
         return dest;
     }
 
-    private Mat getFaceMask(Mat im, INDArray landmarks) {
+    private Mat getFaceMask(Mat im, Mat landmarks) {
         Mat newImage = new Mat(im.size(), CvType.CV_64FC3);
 
-        for(ArrayList<Integer> group : OVERLAY_POINTS) {
-            int[] rowsToGet = group.stream()
-                    .mapToInt(Integer::intValue).toArray();
-
-            INDArray rows = landmarks.getRows(rowsToGet);
-
-            drawConvexHull(newImage, rows);
+        for(int[] rowsToGet : OVERLAY_POINTS) {
+            MatOfPoint points = new MatOfPoint();
+            ArrayList<Point> pointList = new ArrayList<>();
+            for(int i : rowsToGet) {
+                double px = landmarks.get(i, 0)[0];
+                double py = landmarks.get(i, 1)[0];
+                Point p = new Point(px, py);
+                pointList.add(p);
+            }
+            points.fromList(pointList);
+            drawConvexHull(newImage, points);
         }
 
         Imgproc.GaussianBlur(newImage, newImage, new Size(FEATHER_AMOUNT, FEATHER_AMOUNT), 0);
-        
+
         return newImage;
     }
 
-    private void drawConvexHull(Mat im, INDArray points) {
-        int[] shape = points.shape();
-        ArrayList<Point> pointList = new ArrayList<>();
-        for(int i = 0; i < shape[0]; i++){
-            INDArray row = points.getRow(i);
-            Point p = new Point();
-            p.set(new double[]{row.getDouble(0), row.getDouble(1)});
-            pointList.add(p);
-        }
-
-        MatOfPoint matOfPoint = new MatOfPoint();
-        matOfPoint.fromList(pointList);
+    private void drawConvexHull(Mat im, MatOfPoint matOfPoint) {
 
         MatOfInt hull = new MatOfInt();
         Imgproc.convexHull(matOfPoint, hull);
 
         MatOfPoint hullPoints = new MatOfPoint();
+
+        ArrayList<Point> pointList = new ArrayList<>();
         pointList = new ArrayList<>();
 
         for(int i = 0; i < hull.size().height; i ++){
@@ -207,61 +210,66 @@ public class FaceSwapper {
         }
         hullPoints.fromList(pointList);
 
-        Imgproc.fillConvexPoly(im, hullPoints, new Scalar(255, 255, 255));
+        Imgproc.fillConvexPoly(im, hullPoints, new Scalar(1, 1, 1));
     }
 
-    public INDArray transformationFromPoints(INDArray points1, INDArray points2) {
+    private Mat transformationFromPoints(Mat points1, Mat points2) {
+        Mat c1 = new Mat();
+        Core.reduce(points1, c1, 0, CV_REDUCE_AVG);
+        Mat c2 = new Mat();
+        Core.reduce(points2, c2, 0, CV_REDUCE_AVG);
 
+        for(int i = 0; i < points1.height(); i++) {
+            Mat row1 = points1.row(i);
+            Core.subtract(row1, c1, row1);
 
-        //c1 should be [[ 540.95348837  613.27906977]]
-        //c2 should be [[ 228.55813953  171.95348837]]
-        //s1 should be 48.3510128486
-        //s2 should be 33.236032497
-        //U should be [[ 0.08987633  0.99595293] [ 0.99595293 -0.08987633]]
-        //S should be [55.9960492496, 29.4161457185]
-        //VT should be [[ 0.08543031  0.99634415] [ 0.99634415 -0.08543031]]
-        //R should be [[ 0.99999004 -0.00446319] [ 0.00446319  0.99999004]]
-        // M should be [[  6.87383769e-01  -3.06795691e-03  -1.41402995e+02] [  3.06795691e-03   6.87383769e-01  -2.51264212e+02] [  0.00000000e+00   0.00000000e+00   1.00000000e+00]]
-        //mul should be [[ 29.61993757   2.51146076] [  2.13024966  55.79140669]]
-        //hs1 should be [[ 0.68738377 -0.00306796] [ 0.00306796  0.68738377]]
-        //hs2 should be [[-141.40299458] [-251.26421225]]
-        //hs should be [[  6.87383769e-01  -3.06795691e-03  -1.41402995e+02] [  3.06795691e-03   6.87383769e-01  -2.51264212e+02]]
-        //done should be [[  6.87383769e-01  -3.06795691e-03  -1.41402995e+02] [  3.06795691e-03   6.87383769e-01  -2.51264212e+02] [  0.00000000e+00   0.00000000e+00   1.00000000e+00]]
+            Mat row2 = points2.row(i);
+            Core.subtract(row2, c2, row2);
+        }
 
-        INDArray c1 = points1.mean(0);
-        INDArray c2 = points2.mean(0);
+        MatOfDouble mean = new MatOfDouble();
+        MatOfDouble s1 = new MatOfDouble();
+        Core.meanStdDev(points1, mean, s1);
 
-        points1 = points1.subRowVector(c1);
-        points2 = points2.subRowVector(c2);
+        MatOfDouble s2 = new MatOfDouble();
+        Core.meanStdDev(points2, mean, s2);
 
-        Number s1 = points1.stdNumber();
-        Number s2 = points2.stdNumber();
+        Core.divide(points1, s1, points1);
+        Core.divide(points2, s2, points2);
 
-        points1 = points1.div(s1);
-        points2 = points2.div(s2);
+        Mat A = new Mat();
+        Core.transpose(points1, points1);
+        Core.gemm(points1, points2,1, new Mat(), 0, A);
 
-        INDArray A = points1.transpose().mmul(points2);
+        Mat S = new Mat(1, A.height(), A.type());
+        Mat U = new Mat(A.height(), A.height(), A.type());
+        Mat V = new Mat(A.width(), A.width(), A.type());
 
-        int nRows = A.rows();
-        int nColumns = A.columns();
+        Core.SVDecomp(A, S, U, V);
 
-        INDArray S = Nd4j.zeros(1, nRows);
-        INDArray U = Nd4j.zeros(nRows, nRows);
-        INDArray V = Nd4j.zeros(nColumns, nColumns);
-        Nd4j.getBlasWrapper().lapack().gesvd(A, S, U, V);
+        Mat R = new Mat();
+        Core.gemm(U, V, 1, new Mat(), 0, R);
+        Core.transpose(R, R);
 
-        INDArray R = U.mmul(V).transpose();
-        INDArray hs1 = R.mul(s2.floatValue() / s1.floatValue());
-        INDArray mul = hs1.mmul(c1.transpose());
-        INDArray hs2 = c2.transpose().sub(mul);
+        double s1d = s1.get(0, 0)[0];
+        double s2d = s2.get(0, 0)[0];
+        double std = s2d / s1d;
 
-        INDArray hs = Nd4j.hstack(hs1, hs2);
+        Mat hs1 = new Mat();
+        Core.multiply(R, new Scalar(std), hs1);
+        Core.transpose(c1, c1);
 
-        INDArray done = Nd4j.vstack(
-                hs,
-                Nd4j.create(new float[]{0f, 0f, 1f})
-        );
+        Mat mul = new Mat();
+        Core.gemm(hs1, c1, 1, new Mat(), 0, mul);
+        Core.transpose(c2, c2);
 
-        return done;
+        Mat hs2 = new Mat();
+        Core.subtract(c2, mul, hs2);
+
+        List<Mat> src = Arrays.asList(hs1, hs2);
+        Mat dst = new Mat();
+        Core.hconcat(src, dst);
+
+        return dst;
     }
 }
