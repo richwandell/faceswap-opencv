@@ -220,7 +220,6 @@ public class Main {
     }
 
     static {
-//        System.loadLibrary(Core.NATIVE_LIBRARY_NAME);
         Loader.load(opencv_java.class);
     }
 
@@ -232,6 +231,11 @@ public class Main {
 
             FaceSwapper f = new FaceSwapper(im1, im2, landmarks1, landmarks2);
 
+            Mat mask = f.getFaceMask();
+            Mat swapped = f.getSwappedImage();
+
+            Imgcodecs.imwrite("mask.png", mask);
+            Imgcodecs.imwrite("swapped.png", swapped);
 
 
         }catch(Exception e){
