@@ -1,3 +1,5 @@
+
+
 import org.bytedeco.javacpp.Loader;
 import org.bytedeco.javacpp.opencv_java;
 import org.opencv.core.*;
@@ -20,7 +22,7 @@ public class FaceSwapper {
 
     private final int FEATHER_AMOUNT = 11;
 
-    private final double COLOUR_CORRECT_BLUR_FRAC = 1.5;
+    private final double COLOUR_CORRECT_BLUR_FRAC = 1;
 
     private static List<Integer> FACE_POINTS = IntStream.rangeClosed(17, 67)
             .boxed().collect(Collectors.toList());
@@ -101,7 +103,7 @@ public class FaceSwapper {
 
     private Mat swappedImage = null;
 
-    private Mat floatToMat(float[][] f) {
+    public static Mat floatToMat(float[][] f) {
         Mat m = new Mat(f.length, f[0].length, CvType.CV_64FC1);
         for(int i = 0; i < f.length; i++) {
             for(int j = 0; j < f[i].length; j++) {
@@ -193,9 +195,6 @@ public class FaceSwapper {
         Mat im1tim2blurdim2blur = new Mat();
         Core.divide(wimtim1b, im2Blur, im1tim2blurdim2blur, 1, CvType.CV_64FC3);
 
-//        norm = np.linalg.norm(left_eye_mean - right_eye_mean)
-
-
         return im1tim2blurdim2blur;
     }
 
@@ -253,7 +252,6 @@ public class FaceSwapper {
 
         Mat done = new Mat();
         outputImage.copyTo(done, combinedMask);
-//        Core.bitwise_xor(outputImage, outputImage, combinedMask);
 
         return done;
     }
@@ -268,8 +266,9 @@ public class FaceSwapper {
     }
 
     private Mat getCombinedMask(Mat mask1, Mat warpedMask2) {
+
         Mat dest = new Mat();
-        Core.max(mask1, warpedMask2, dest);
+        Core.add(mask1, warpedMask2, dest);
         return dest;
     }
 

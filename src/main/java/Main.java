@@ -1,7 +1,7 @@
 import org.bytedeco.javacpp.*;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.factory.Nd4j;
-import org.opencv.core.Core;
+import org.opencv.core.*;
 import org.opencv.core.CvType;
 import org.opencv.core.Mat;
 import org.opencv.core.Scalar;
@@ -162,6 +162,34 @@ public class Main {
         {227f, 221f}
     };
 
+    static float[][] lepFloat = {
+            {289f, 185f},
+            {295f, 179f},
+            {302f, 179f},
+            {308f, 184f},
+            {303f, 187f},
+            {295f, 187f}
+    };
+
+    static float[][] repFloat = {
+            {241f, 188f},
+            {246f, 182f},
+            {254f, 181f},
+            {261f, 187f},
+            {254f, 189f},
+            {247f, 190f}
+    };
+
+    static float[][] lepMean = {{ 298.66666667f,  183.5f       }};
+
+    static float[][] repMean = {{ 250.5f,         186.16666667f}};
+
+    static float[][] mean = {{ 48.16666667f,  -2.66666667f}};
+
+    static float norm = 48.2404279509f;
+
+    static float blur = 28.9442567706f;
+
 
 
     private static INDArray fixColors(INDArray badMatrix) {
@@ -226,16 +254,35 @@ public class Main {
     public static void main(String[] args) {
 
         try {
-            Mat im1 = Imgcodecs.imread("./resources/my-face.jpg");
-            Mat im2 = Imgcodecs.imread("./resources/brad-face.jpg");
+//            Mat im1 = Imgcodecs.imread("./resources/my-face.jpg");
+//            Mat im2 = Imgcodecs.imread("./resources/brad-face.jpg");
+//
+//            FaceSwapper f = new FaceSwapper(im1, im2, landmarks1, landmarks2);
+//
+//            Mat mask = f.getFaceMask();
+//            Mat swapped = f.getSwappedImage();
+//
+//            Imgcodecs.imwrite("mask.png", mask);
+//            Imgcodecs.imwrite("swapped.png", swapped);
 
-            FaceSwapper f = new FaceSwapper(im1, im2, landmarks1, landmarks2);
+            Mat lep = FaceSwapper.floatToMat(lepFloat);
+            MatOfDouble leftEyeMean = new MatOfDouble();
+            MatOfDouble std = new MatOfDouble();
+            Core.meanStdDev(lep, leftEyeMean, std);
 
-            Mat mask = f.getFaceMask();
-            Mat swapped = f.getSwappedImage();
+            Mat rep = FaceSwapper.floatToMat(repFloat);
+            MatOfDouble rightEyeMean = new MatOfDouble();
+            Core.meanStdDev(rep, rightEyeMean, std);
 
-            Imgcodecs.imwrite("mask.png", mask);
-            Imgcodecs.imwrite("swapped.png", swapped);
+            Mat mean = new Mat();
+            Core.subtract(leftEyeMean, rightEyeMean, mean);
+
+            double[] blurAmountDouble = mean.get(0, 0);
+
+            int blurAmount = (int)(0.6 * blurAmountDouble[0]);
+            if(blurAmount % 2 == 0) {
+                blurAmount += 1;
+            }
 
 
         }catch(Exception e){
